@@ -1,8 +1,6 @@
 streamlit
 streamlit-autorefresh
-openf1
 fastf1
 pandas
 numpy
 plotly
-
