@@ -8,7 +8,7 @@ from streamlit_autorefresh import st_autorefresh
 st.set_page_config(layout="wide", page_title="Live F1 Lap Times", page_icon="🏎️")
 
 # Auto-refresh every 30 seconds
-st_autorefresh(interval= 5000 , key="datarefresh")
+st_autorefresh(interval= 90000 , key="datarefresh")
 
 # Driver and team mappings
 driver_names = {
