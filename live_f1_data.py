@@ -7,8 +7,8 @@ from streamlit_autorefresh import st_autorefresh
 # Set page config
 st.set_page_config(layout="wide", page_title="Live F1 Lap Times", page_icon="🏎️")
 
-# Auto-refresh every 30 seconds
-st_autorefresh(interval= 10000 , key="datarefresh")
+# Auto-refresh every 10 seconds
+st_autorefresh(interval=10000, key="datarefresh")
 
 # Driver and team mappings
 driver_names = {
@@ -113,7 +113,7 @@ def app():
         col_order.append(col_order.pop(col_order.index("driver_number")))
     df_merged = df_merged[col_order]
 
-    # 🟥 Convert segments to colored blocks
+    # Convert segments to colored blocks
     df_merged = convert_sectors_to_colors(df_merged)
 
     # Filters
@@ -136,12 +136,13 @@ def app():
         df_merged = df_valid[df_valid["lap_duration_seconds"] == min_duration].copy()
         df_merged.drop(columns=["lap_duration_seconds"], inplace=True)
 
+    # 🆕 Sort by lap_number descending (latest laps at top)
+    if "lap_number" in df_merged.columns:
+        df_merged = df_merged.sort_values(by="lap_number", ascending=False)
+
     # Show final
     st.dataframe(df_merged, use_container_width=True)
 
 # Run
 if __name__ == "__main__":
     app()
-
-
-#To Run the code use : streamlit run live_f1_data.py
