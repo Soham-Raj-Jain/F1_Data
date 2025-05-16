@@ -4,11 +4,9 @@ import json
 from urllib.request import urlopen
 from streamlit_autorefresh import st_autorefresh
 
-# Set page config
+# Page config
 st.set_page_config(layout="wide", page_title="Live F1 Lap Times", page_icon="🏎️")
-
-# Auto-refresh every 10 seconds
-st_autorefresh(interval=10000, key="datarefresh")
+st_autorefresh(interval=15000, key="datarefresh")  # refresh every 10s
 
 # Driver and team mappings
 driver_names = {
@@ -27,29 +25,31 @@ driver_team = {
     23: 'Williams', 6: 'Racing Bulls', 27: 'Kick Sauber', 87: 'Haas F1 Team'
 }
 
-# Sector color code mapping
 color_map = {
-    0: "⬛",       # Not available
-    2048: "🟨",    # Yellow
-    2049: "🟩",    # Green
-    2050: "❓",    # Unknown
-    2051: "🟪",    # Purple
-    2052: "❓",    # Unknown
-    2064: "🟦",    # Pitlane
-    2068: "❓"     # Unknown
+    0: "⬛", 2048: "🟨", 2049: "🟩", 2050: "❓", 2051: "🟪",
+    2052: "❓", 2064: "🟦", 2068: "❓"
 }
 
-# Fetch lap + stint data
+# API Data
 def fetch_data(session_key):
-    lap_url = f'https://api.openf1.org/v1/laps?session_key={session_key}'
-    stint_url = f'https://api.openf1.org/v1/stints?session_key={session_key}&tyre_age_at_start>=3'
+    lap_url = f"https://api.openf1.org/v1/laps?session_key={session_key}"
+    stint_url = f"https://api.openf1.org/v1/stints?session_key={session_key}&tyre_age_at_start>=3"
+    session_url = f"https://api.openf1.org/v1/sessions?session_key={session_key}"
 
     lap_data = json.loads(urlopen(lap_url).read().decode('utf-8'))
     stint_data = json.loads(urlopen(stint_url).read().decode('utf-8'))
+    session_data = json.loads(urlopen(session_url).read().decode('utf-8'))
 
-    return lap_data, stint_data
+    event_title = ""
+    if session_data and isinstance(session_data, list):
+        event = session_data[0]
+        country = event.get("country_name", "")
+        circuit = event.get("circuit_short_name", "").upper()
+        session_name = event.get("session_name", "")
+        event_title = f"{country} ({circuit}) - {session_name}"
 
-# Format seconds to M:SS.mmm
+    return lap_data, stint_data, event_title
+
 def format_lap_time(seconds):
     if pd.isnull(seconds):
         return ""
@@ -57,7 +57,6 @@ def format_lap_time(seconds):
     remaining_seconds = seconds % 60
     return f"{minutes}:{remaining_seconds:06.3f}"
 
-# Convert lap time string (M:SS.mmm) to seconds
 def lap_time_to_seconds(time_str):
     try:
         minutes, sec_ms = time_str.split(":")
@@ -65,7 +64,6 @@ def lap_time_to_seconds(time_str):
     except:
         return None
 
-# Convert numeric segment codes to colored blocks
 def convert_sectors_to_colors(df):
     for sector_col in ['segments_sector_1', 'segments_sector_2', 'segments_sector_3']:
         if sector_col in df.columns:
@@ -74,75 +72,74 @@ def convert_sectors_to_colors(df):
             )
     return df
 
-# Main Streamlit app
 def app():
-    st.title("🏁 Live F1 Sector Visualizer")
+    session_key = "latest"
+    lap_data, stint_data, event_title = fetch_data(session_key)
 
-    session_key = 'latest'
-    lap_data, stint_data = fetch_data(session_key)
+    st.title(f"🏁 Live F1 Sector Visualizer — {event_title}")
 
     df_lap = pd.DataFrame(lap_data)
     df_stint = pd.DataFrame(stint_data)
+    df = pd.merge(df_lap, df_stint, on="driver_number", how="left")
 
-    # Merge laps with stint info
-    df_merged = pd.merge(df_lap, df_stint, on="driver_number", how="left")
+    df["driver_name"] = df["driver_number"].map(driver_names)
+    df["team_name"] = df["driver_number"].map(driver_team)
+    df["lap_duration"] = df["lap_duration"].apply(format_lap_time)
 
-    # Add driver & team names
-    df_merged["driver_name"] = df_merged["driver_number"].map(driver_names)
-    df_merged["team_name"] = df_merged["driver_number"].map(driver_team)
-
-    # Format lap duration
-    if "lap_duration" in df_merged.columns:
-        df_merged["lap_duration"] = df_merged["lap_duration"].apply(format_lap_time)
-
-    # Drop unused
-    df_merged = df_merged.drop(columns=[
+    df = df.drop(columns=[
         'meeting_key_y', 'i1_speed', 'i2_speed', 'date_start', 'date_end',
         'deleted', 'lap_distance', 'meeting_key_x', 'session_key_y', 'session_key_x'
     ], errors='ignore')
 
-    # Reorder
-    col_order = list(df_merged.columns)
-    if "driver_name" in col_order:
-        col_order.insert(0, col_order.pop(col_order.index("driver_name")))
-    if "compound_name" in col_order:
-        col_order.insert(1, col_order.pop(col_order.index("compound_name")))
-    if "is_pit_out_lap" in col_order:
-        col_order.insert(-1, col_order.pop(col_order.index("is_pit_out_lap")))
-    if "driver_number" in col_order:
-        col_order.append(col_order.pop(col_order.index("driver_number")))
-    df_merged = df_merged[col_order]
+    df = convert_sectors_to_colors(df)
 
-    # Convert segments to colored blocks
-    df_merged = convert_sectors_to_colors(df_merged)
+    selected_drivers = st.multiselect("👤 Select Driver(s)", sorted(driver_names.values()))
+    selected_teams = st.multiselect("🏎️ Select Team(s)", sorted(set(driver_team.values())))
 
-    # Filters
-    selected_driver = st.selectbox("👤 Select Driver", ["All Drivers"] + sorted(driver_names.values()))
-    selected_team = st.selectbox("🏎️ Select Team", ["All Teams"] + sorted(set(driver_team.values())))
-    show_fastest_lap = st.checkbox("⚡ Show only fastest lap")
+    col1, col2 = st.columns(2)
+    show_fastest_lap = col1.checkbox("⚡ Show only fastest lap")
+    show_current_lap = col2.checkbox("📡 Show only current lap")
 
-    # Apply filters
-    if selected_driver != "All Drivers":
-        df_merged = df_merged[df_merged['driver_name'] == selected_driver]
+    if selected_drivers:
+        df = df[df['driver_name'].isin(selected_drivers)]
+    if selected_teams:
+        df = df[df['team_name'].isin(selected_teams)]
 
-    if selected_team != "All Teams":
-        df_merged = df_merged[df_merged['team_name'] == selected_team]
+    if show_current_lap:
+        # Get latest lap per driver
+        df = df.sort_values(by="lap_number", ascending=False)
+        df = df.dropna(subset=["driver_name"])  # Drop unknown drivers
+        df_latest = df.groupby("driver_name", as_index=False).first()
 
-    if show_fastest_lap and not df_merged.empty:
-        valid_laps = df_merged["lap_duration"].apply(lambda x: isinstance(x, str) and ":" in x)
-        df_valid = df_merged[valid_laps].copy()
-        df_valid["lap_duration_seconds"] = df_valid["lap_duration"].apply(lap_time_to_seconds)
-        min_duration = df_valid["lap_duration_seconds"].min()
-        df_merged = df_valid[df_valid["lap_duration_seconds"] == min_duration].copy()
-        df_merged.drop(columns=["lap_duration_seconds"], inplace=True)
+        # Preserve team order in preferred sequence
+        team_order = ['McLaren', 'Ferrari', 'Red Bull Racing', 'Mercedes', 'Aston Martin']
+        df_latest["team_name"] = df_latest["team_name"].fillna("Unknown")
 
-    # 🆕 Sort by lap_number descending (latest laps at top)
-    if "lap_number" in df_merged.columns:
-        df_merged = df_merged.sort_values(by="lap_number", ascending=False)
+        # Create a categorical dtype for sorting by team
+        df_latest["team_order"] = pd.Categorical(df_latest["team_name"], categories=team_order, ordered=True)
+        df_latest = df_latest.sort_values(by=["team_order", "driver_name"])
+        df = df_latest.drop(columns=["team_order"])
 
-    # Show final
-    st.dataframe(df_merged, use_container_width=True)
+    elif show_fastest_lap:
+        df = df.copy()
+        df["lap_duration_seconds"] = df["lap_duration"].apply(lap_time_to_seconds)
+        df = df[df["lap_duration_seconds"] == df["lap_duration_seconds"].min()]
+        df.drop(columns=["lap_duration_seconds"], inplace=True)
 
-# Run
+    if "lap_number" in df.columns:
+        df = df.sort_values(by="lap_number", ascending=False)
+
+    # Swap driver_number and driver_name columns only if NOT showing current lap
+    if not show_current_lap:
+        cols = df.columns.tolist()
+        if 'driver_number' in cols and 'driver_name' in cols:
+            idx_num = cols.index('driver_number')
+            idx_name = cols.index('driver_name')
+            cols[idx_num], cols[idx_name] = cols[idx_name], cols[idx_num]
+            df = df[cols]
+
+    st.dataframe(df, use_container_width=True)
+
+# Run app
 if __name__ == "__main__":
     app()
