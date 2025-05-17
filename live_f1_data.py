@@ -129,8 +129,19 @@ def app():
         elif show_fastest_lap:
             df = df.copy()
             df["lap_duration_seconds"] = df["lap_duration"].apply(lap_time_to_seconds)
-            df = df[df["lap_duration_seconds"] == df["lap_duration_seconds"].min()]
+
+            # Get fastest lap per driver
+            df_fastest = df.loc[df.groupby("driver_name")["lap_duration_seconds"].idxmin().dropna()]
+            
+            # Filter again if selection applied
+            if selected_drivers:
+                df_fastest = df_fastest[df_fastest['driver_name'].isin(selected_drivers)]
+            if selected_teams:
+                df_fastest = df_fastest[df_fastest['team_name'].isin(selected_teams)]
+
+            df = df_fastest.sort_values(by="lap_duration_seconds", ascending=True)
             df.drop(columns=["lap_duration_seconds"], inplace=True)
+
         else:
             if "lap_number" in df.columns:
                 df = df.sort_values(by="lap_number", ascending=False)
