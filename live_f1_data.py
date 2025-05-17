@@ -72,6 +72,13 @@ def convert_sectors_to_colors(df):
             )
     return df
 
+def reorder_columns(df):
+    cols = df.columns.tolist()
+    if 'driver_name' in cols:
+        cols.remove('driver_name')
+        df = df[['driver_name'] + cols]
+    return df
+
 def app():
     session_key = "latest"
 
@@ -108,16 +115,14 @@ def app():
             df = df[df['team_name'].isin(selected_teams)]
 
         if show_current_lap:
-            # Get latest lap per driver
             df = df.sort_values(by="lap_number", ascending=False)
-            df = df.dropna(subset=["driver_name"])  # Drop unknown drivers
+            df = df.dropna(subset=["driver_name"])
             df_latest = df.groupby("driver_name", as_index=False).first()
 
-            # Preserve team order in preferred sequence
             team_order = ['McLaren', 'Ferrari', 'Red Bull Racing', 'Mercedes', 'Aston Martin']
             df_latest["team_name"] = df_latest["team_name"].fillna("Unknown")
-
             df_latest["team_order"] = pd.Categorical(df_latest["team_name"], categories=team_order, ordered=True)
+
             df_latest = df_latest.sort_values(by=["team_order", "driver_name"])
             df = df_latest.drop(columns=["team_order"])
 
@@ -126,25 +131,15 @@ def app():
             df["lap_duration_seconds"] = df["lap_duration"].apply(lap_time_to_seconds)
             df = df[df["lap_duration_seconds"] == df["lap_duration_seconds"].min()]
             df.drop(columns=["lap_duration_seconds"], inplace=True)
+        else:
+            if "lap_number" in df.columns:
+                df = df.sort_values(by="lap_number", ascending=False)
 
-        if "lap_number" in df.columns:
-            df = df.sort_values(by="lap_number", ascending=False)
-
-        # Swap driver_number and driver_name columns only if NOT showing current lap
-        if not show_current_lap:
-            cols = df.columns.tolist()
-            if 'driver_number' in cols and 'driver_name' in cols:
-                idx_num = cols.index('driver_number')
-                idx_name = cols.index('driver_name')
-                cols[idx_num], cols[idx_name] = cols[idx_name], cols[idx_num]
-                df = df[cols]
-
+        df = reorder_columns(df)
         st.dataframe(df, use_container_width=True)
 
     except Exception:
-        
         st.markdown("### Updating data... Please wait.")
 
-# Run app
 if __name__ == "__main__":
     app()
